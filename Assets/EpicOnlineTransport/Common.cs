@@ -201,6 +201,9 @@ namespace EpicTransport {
 
         public void ReceiveData() {
             try {
+                // Bail out if EOS is already shut down
+                if (!EOSSDKComponent.Initialized || EOSSDKComponent.LocalUserProductId == null) return;
+
                 // Internal Channel, no fragmentation here
                 SocketId socketId = new SocketId();
                 while (transport.enabled && Receive(out ProductUserId clientUserID, out socketId, out byte[] internalMessage, (byte) internal_ch)) {

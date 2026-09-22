@@ -11,16 +11,16 @@ public class NetworkUI : MonoBehaviour
         if (NetworkServer.active || NetworkClient.isConnected)
         {
             GUILayout.Label(NetworkServer.active ? $"Hosting - Code: {displayCode}" : "Connected");
-            if (GUILayout.Button("Disconnect")) FindAnyObjectByType<GameNetworkManager>().LeaveGame();
+            if (GUILayout.Button("Disconnect")) FindAnyObjectByType<GameNetworkManager>().LeaveParty();
             return;
         }
 
         if (GUILayout.Button("Host"))
-            FindAnyObjectByType<GameNetworkManager>().HostGame("Player", (code) => displayCode = code);
+            FindAnyObjectByType<GameNetworkManager>().StartPartyHost(code => displayCode = code);
 
         GUILayout.Label("Lobby Code:");
         joinCode = GUILayout.TextField(joinCode, GUILayout.Width(200));
         if (GUILayout.Button("Join"))
-            FindAnyObjectByType<GameNetworkManager>().JoinGame(joinCode, "Player", () => Debug.LogError("Lobby not found"));
+            FindAnyObjectByType<GameNetworkManager>().JoinParty(joinCode, () => Debug.LogError("Lobby not found"));
     }
 }

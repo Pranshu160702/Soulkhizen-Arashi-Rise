@@ -103,14 +103,14 @@ public class LobbyUI : MonoBehaviour
     void OnStartClicked()
     {
         startButton.interactable = false; // prevent double-click
-        FindAnyObjectByType<GameNetworkManager>()?.StartGame();
+        FindAnyObjectByType<GameNetworkManager>()?.StartGame("Game");
     }
 
     void OnLeaveClicked()
     {
         if (_dotsCoroutine != null) { StopCoroutine(_dotsCoroutine); _dotsCoroutine = null; }
         leaveButton.interactable = false; // prevent double-click
-        FindAnyObjectByType<GameNetworkManager>()?.LeaveGame();
+        FindAnyObjectByType<GameNetworkManager>()?.LeaveParty();
     }
 
     IEnumerator AnimateDots()

@@ -7,7 +7,7 @@ using System;
 [InitializeOnLoad]
 public class ConsoleLogger
 {
-    private static readonly string logPath = @"d:\Unity\Unity Projects\INDG\console_log.txt";
+    private static readonly string logPath = Path.Combine(Application.dataPath, "..", "console_log.txt");
 
     static ConsoleLogger()
     {

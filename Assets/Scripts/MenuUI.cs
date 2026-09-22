@@ -123,7 +123,7 @@ public class MenuUI : MonoBehaviour
 
     void DoHost()
     {
-        NetManager.HostGame(GameNetworkManager.LocalPlayerName, code =>
+        NetManager.StartPartyHost(code =>
         {
             LoadingOverlay.Hide();
             if (code == null && joinStatusText != null)
@@ -192,7 +192,7 @@ public class MenuUI : MonoBehaviour
 
     void DoJoin(string code)
     {
-        NetManager.JoinGame(code, GameNetworkManager.LocalPlayerName, () =>
+        NetManager.JoinParty(code, () =>
         {
             // Failed
             if (joinStatusText != null) joinStatusText.text = "Room not found.";
@@ -231,7 +231,7 @@ public class MenuUI : MonoBehaviour
     {
         if (NetManager == null) { Debug.LogError("[MenuUI] netManager is null"); return; }
         LoadingOverlay.Show();
-        NetManager.QuickTestGame();
+        NetManager.StartPartyHost(_ => { });
     }
 
     // ── Show Rooms ──

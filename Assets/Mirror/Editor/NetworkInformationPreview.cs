@@ -60,7 +60,8 @@ namespace Mirror
         }
 
         GUIContent title;
-        Styles styles = new Styles();
+        Styles _styles;
+        Styles styles => _styles ??= new Styles();
 
         public override GUIContent GetPreviewTitle()
         {
@@ -94,10 +95,6 @@ namespace Mirror
 
             if (identity == null)
                 return;
-
-            if (styles == null)
-                styles = new Styles();
-
 
             // padding
             RectOffset previewPadding = new RectOffset(-5, -5, -5, -5);
