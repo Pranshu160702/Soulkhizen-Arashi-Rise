@@ -1,21 +1,19 @@
 using UnityEngine;
+using cowsins;
 
 /// Place on a world GameObject with a Collider (set Is Trigger = true).
-/// Assign gunIndex matching the index in FPSArmsAnimator.guns[].
+/// Assign the Weapon_SO that this pickup grants.
 public class GunPickup : MonoBehaviour
 {
-    [Tooltip("Index into FPSArmsAnimator.guns[] that this pickup switches to")]
-    public int gunIndex = 0;
+    [Tooltip("The Cowsins Weapon_SO scriptable object this pickup grants")]
+    public Weapon_SO weapon;
 
-    [Tooltip("Ammo added to reserve on pickup (0 = no ammo added)")]
+    [Tooltip("Bonus reserve ammo added on pickup (0 = no ammo added)")]
     public int bonusReserveAmmo = 0;
 
     [Tooltip("Spin axis for the pickup prop")]
     public Vector3 spinAxis = Vector3.up;
     public float spinSpeed = 45f;
-
-    [Tooltip("Optional visual mesh shown in the world")]
-    public GameObject visualRoot;
 
     void Update()
     {
@@ -25,17 +23,15 @@ public class GunPickup : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
-        NetworkPlayer np = other.GetComponentInParent<NetworkPlayer>();
+        var np = other.GetComponentInParent<NetworkPlayer>();
         if (np == null || !np.isLocalPlayer) return;
 
-        np.SwitchGun(gunIndex);
+        var wc = np.GetComponentInChildren<WeaponController>();
+        if (wc == null || weapon == null) return;
 
-        if (bonusReserveAmmo > 0)
-        {
-            // GunScript lives on the root player object
-            GunScript gs = np.GetComponent<GunScript>();
-            gs?.AddReserveAmmo(bonusReserveAmmo);
-        }
+        // Try to add to inventory; if full, swap with current weapon
+        if (!wc.TryToAddWeapons(weapon, weapon.magazineSize, bonusReserveAmmo, null))
+            wc.SwapWeapons(weapon, weapon.magazineSize, bonusReserveAmmo, null);
 
         gameObject.SetActive(false);
         Destroy(gameObject, 0.1f);

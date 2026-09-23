@@ -42,9 +42,7 @@ public class LobbyUI : MonoBehaviour
         // Start button: hidden by default for non-hosts, shown via isHost SyncVar hook
         if (startButton != null)
         {
-            var localPlayer = LobbyPlayer.All.Find(p => p.isLocalPlayer);
-            bool shouldShow = localPlayer != null ? localPlayer.isHost : NetworkServer.active;
-            startButton.gameObject.SetActive(shouldShow);
+            startButton.gameObject.SetActive(NetworkServer.active);
             startButton.onClick.AddListener(OnStartClicked);
         }
 
@@ -91,7 +89,7 @@ public class LobbyUI : MonoBehaviour
 
             if (nameTMP  != null) nameTMP.text  = string.IsNullOrEmpty(player.playerName) ? "Connecting..." : player.playerName;
             if (indexTMP != null) indexTMP.text = $"{index + 1:D2}";
-            if (hostBadge != null) hostBadge.SetActive(player.isHost);
+            if (hostBadge != null) hostBadge.SetActive(player.isLocalPlayer && NetworkServer.active);
 
             index++;
         }

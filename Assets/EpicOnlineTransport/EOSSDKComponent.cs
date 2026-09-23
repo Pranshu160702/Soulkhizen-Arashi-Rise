@@ -356,7 +356,6 @@ namespace EpicTransport {
 
         private void CreateUniqueDeviceId() {
             string uniqueModel = deviceModel;
-            // In editor only, use a different device model so editor and build get different product user IDs
             #if UNITY_EDITOR
             uniqueModel = "EDITOR_" + System.Environment.MachineName;
             #endif

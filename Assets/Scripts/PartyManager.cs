@@ -2,20 +2,17 @@ using System.Collections.Generic;
 using UnityEngine;
 using Mirror;
 
-/// <summary>
-/// Must be on a GameObject with NetworkIdentity in the MainMenu scene.
-/// Tracks party members and leader, synced to all clients.
-/// </summary>
 public class PartyManager : NetworkBehaviour
 {
     public static PartyManager Instance { get; private set; }
 
     public readonly SyncList<string> memberNames = new SyncList<string>();
 
-    [SyncVar(hook = nameof(OnLeaderChanged))]
-    public string leaderName = "";
+    [SyncVar(hook = nameof(OnSceneNameChanged))]
+    public string selectedSceneName = "";
 
-    public bool IsLocalLeader => leaderName == GameNetworkManager.LocalPlayerName;
+    [SyncVar(hook = nameof(OnModeDisplayChanged))]
+    public string selectedModeDisplay = "";
 
     void Awake()
     {
@@ -31,10 +28,10 @@ public class PartyManager : NetworkBehaviour
     public override void OnStartClient()
     {
         base.OnStartClient();
-        // Subscribe to SyncList changes so clients refresh cards when list changes
         memberNames.Callback += OnMemberListChanged;
-        // Initial refresh in case list already has data
         MenuController.Instance?.RefreshParty();
+        if (!string.IsNullOrEmpty(selectedSceneName) && !string.IsNullOrEmpty(selectedModeDisplay))
+            MenuController.Instance?.OnGameModeChanged(selectedSceneName, selectedModeDisplay);
     }
 
     public override void OnStopClient()
@@ -49,10 +46,31 @@ public class PartyManager : NetworkBehaviour
         MenuController.Instance?.RefreshParty();
     }
 
-    void OnLeaderChanged(string _, string newLeader)
+    void OnSceneNameChanged(string _, string newVal) { }
+    void OnModeDisplayChanged(string _, string newDisplay)
     {
-        Debug.Log($"[PartyManager] Leader changed to '{newLeader}'");
-        MenuController.Instance?.RefreshParty();
+        if (!string.IsNullOrEmpty(selectedSceneName) && !string.IsNullOrEmpty(newDisplay))
+            MenuController.Instance?.OnGameModeChanged(selectedSceneName, newDisplay);
+    }
+
+    [Server]
+    public void SetGameMode(string sceneName, string displayName)
+    {
+        selectedSceneName   = sceneName;
+        selectedModeDisplay = displayName;
+    }
+
+    [Server]
+    public void NotifyHostDisconnected() => RpcHostDisconnected();
+
+    [ClientRpc]
+    void RpcHostDisconnected()
+    {
+        if (!NetworkServer.active)
+        {
+            GameNetworkManager.IsHostDisconnecting = true;
+            MenuController.Instance?.OnHostDisconnected();
+        }
     }
 
     [Server]
@@ -60,7 +78,6 @@ public class PartyManager : NetworkBehaviour
     {
         if (string.IsNullOrEmpty(name) || memberNames.Contains(name)) return;
         memberNames.Add(name);
-        if (memberNames.Count == 1) leaderName = name;
         Debug.Log($"[PartyManager] AddMember '{name}' total={memberNames.Count}");
     }
 
@@ -69,8 +86,6 @@ public class PartyManager : NetworkBehaviour
     {
         if (!memberNames.Contains(name)) return;
         memberNames.Remove(name);
-        if (leaderName == name && memberNames.Count > 0)
-            leaderName = memberNames[0];
         Debug.Log($"[PartyManager] RemoveMember '{name}' total={memberNames.Count}");
     }
 }

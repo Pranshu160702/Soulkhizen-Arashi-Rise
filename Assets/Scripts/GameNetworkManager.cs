@@ -21,7 +21,8 @@ public class GameNetworkManager : NetworkManager
     public static string CurrentLobbyCode { get; set; }
 
     private static bool _sessionDestroyed = false;
-    private bool _stoppingAsHost = false;
+    public static bool IsIntentionallyJoining { get; set; } = false;
+    public static bool IsHostDisconnecting   { get; set; } = false;
 
     public override void Awake()
     {
@@ -34,13 +35,10 @@ public class GameNetworkManager : NetworkManager
             offlineScene = menuSceneName;
         }
 
-        // Register lobbyPlayerPrefab as spawnable if not already registered
         if (lobbyPlayerPrefab != null && !spawnPrefabs.Contains(lobbyPlayerPrefab))
             spawnPrefabs.Add(lobbyPlayerPrefab);
 
-        // Mirror's base OnServerAddPlayerInternal checks playerPrefab != null before
-        // calling our override — assign lobbyPlayerPrefab to satisfy that check.
-        // Our override ignores playerPrefab in lobby scenes anyway.
+        // Mirror's base checks playerPrefab != null before calling our override
         if (playerPrefab == null && lobbyPlayerPrefab != null)
             playerPrefab = lobbyPlayerPrefab;
 
@@ -52,7 +50,6 @@ public class GameNetworkManager : NetworkManager
     }
 
     // ── Party Host ───────────────────────────────────────────────────
-    // Creates EOS session + starts Mirror host. MainMenu stays active — no scene change.
     public void StartPartyHost(System.Action<string> onCodeReady)
     {
         if (EOSLobbyCode.Instance == null) { onCodeReady?.Invoke(null); return; }
@@ -88,8 +85,8 @@ public class GameNetworkManager : NetworkManager
 
     void StartHostOnMainMenu()
     {
-        onlineScene  = menuSceneName;
-        offlineScene = menuSceneName;
+        onlineScene    = menuSceneName;
+        offlineScene   = menuSceneName;
         maxConnections = 5;
         _sessionDestroyed = false;
         StartHost();
@@ -99,30 +96,19 @@ public class GameNetworkManager : NetworkManager
     public void JoinParty(string lobbyCode, System.Action onFailed)
     {
         if (EOSLobbyCode.Instance == null) { onFailed?.Invoke(); return; }
-        onlineScene  = menuSceneName;
-        offlineScene = menuSceneName;
+        onlineScene      = menuSceneName;
+        offlineScene     = menuSceneName;
         CurrentLobbyCode = string.Empty;
 
         EOSLobbyCode.Instance.FindSession(lobbyCode,
-            hostId =>
-            {
-                networkAddress = hostId;
-                StartClient();
-            },
-            () =>
-            {
-                Debug.LogError($"[GNM] Party not found: {lobbyCode}");
-                onFailed?.Invoke();
-            });
+            hostId => { networkAddress = hostId; StartClient(); },
+            () => { Debug.LogError($"[GNM] Party not found: {lobbyCode}"); onFailed?.Invoke(); });
     }
 
     // ── Start Game ───────────────────────────────────────────────────
-    // Called by leader only. Moves all party members to the game scene.
     public void StartGame(string sceneName)
     {
         if (!NetworkServer.active) { Debug.LogError("[GNM] StartGame: not server"); return; }
-        // offlineScene stays as menuSceneName so clients return to menu on disconnect
-        // Don't set onlineScene here — Mirror sets it internally via ServerChangeScene
         ServerChangeScene(sceneName);
     }
 
@@ -130,29 +116,40 @@ public class GameNetworkManager : NetworkManager
     public void LeaveParty()
     {
         Debug.Log($"[GNM] LeaveParty server={NetworkServer.active} client={NetworkClient.isConnected}");
-        if (NetworkServer.active) DestroySessionOnce();
-        if (NetworkServer.active && NetworkClient.isConnected) { _stoppingAsHost = true; StopHost(); }
-        else if (NetworkClient.isConnected) StopClient();
-        else if (NetworkServer.active) { _stoppingAsHost = true; StopServer(); }
+        if (NetworkServer.active && NetworkClient.isConnected)
+        {
+            if (NetworkServer.connections.Count > 1)
+                PartyManager.Instance?.NotifyHostDisconnected();
+            StartCoroutine(ShutdownAfterRpc());
+        }
+        else if (NetworkClient.isConnected)
+        {
+            IsIntentionallyJoining = true;
+            StopClient();
+        }
+        else if (NetworkServer.active) StopServer();
     }
 
-    void DestroySessionOnce()
+    IEnumerator ShutdownAfterRpc()
+    {
+        yield return new WaitForSeconds(0.3f);
+        StopHost();
+    }
+
+    void DestroySessionIfEmpty()
     {
         if (_sessionDestroyed || string.IsNullOrEmpty(CurrentLobbyCode)) return;
         _sessionDestroyed = true;
-        CurrentLobbyCode = string.Empty;
+        CurrentLobbyCode  = string.Empty;
         EOSLobbyCode.Instance?.DestroySession();
-        Debug.Log("[GNM] Session destroyed");
+        Debug.Log("[GNM] Session destroyed — party empty");
     }
 
     // ── Mirror Callbacks ─────────────────────────────────────────────
 
     public override void OnServerAddPlayer(NetworkConnectionToClient conn)
     {
-        // In MainMenu (party lobby) spawn lobbyPlayerPrefab (invisible network object)
-        // In game scenes spawn the actual playerPrefab
-        bool isLobby = string.IsNullOrEmpty(networkSceneName)
-                    || networkSceneName == menuSceneName;
+        bool isLobby = string.IsNullOrEmpty(networkSceneName) || networkSceneName == menuSceneName;
 
         if (isLobby)
         {
@@ -166,48 +163,43 @@ public class GameNetworkManager : NetworkManager
             NetworkServer.AddPlayerForConnection(conn, Instantiate(playerPrefab, pos, Quaternion.identity));
         }
         Debug.Log($"[GNM] OnServerAddPlayer conn={conn.connectionId} isLobby={isLobby}");
-        UpdateSessionPlayerCount();
+        UpdateSessionPlayerCount(NetworkServer.connections.Count);
     }
 
     public override void OnServerDisconnect(NetworkConnectionToClient conn)
     {
         int remaining = NetworkServer.connections.Count - 1;
+
         base.OnServerDisconnect(conn);
         if (!NetworkServer.active) return;
 
-        UpdateSessionPlayerCount();
         Debug.Log($"[GNM] OnServerDisconnect conn={conn.connectionId} remaining={remaining}");
 
-        // Don't destroy session just because a client left — host stays
-        if (conn.connectionId != 0 && remaining <= 1)
-            Debug.Log("[GNM] All clients left, host still running");
-        else if (conn.connectionId == 0)
-            TransferHost();
-    }
-
-    void TransferHost()
-    {
-        foreach (var conn in NetworkServer.connections.Values)
+        if (remaining == 0)
         {
-            var lp = conn.identity?.GetComponent<LobbyPlayer>();
-            if (lp != null) { lp.isHost = true; lp.RpcBecomeHost(); break; }
+            UpdateSessionPlayerCount(0);
+            DestroySessionIfEmpty();
+            return;
         }
+
+        UpdateSessionPlayerCount(remaining);
     }
 
-    void UpdateSessionPlayerCount()
+    void UpdateSessionPlayerCount(int playerCount)
     {
         if (!NetworkServer.active || EOSLobbyCode.Instance == null) return;
-        EOSLobbyCode.Instance.UpdateSessionPlayerCount(NetworkServer.connections.Count);
+        EOSLobbyCode.Instance.UpdateSessionPlayerCount(playerCount);
     }
 
     public override void OnStartHost()   { base.OnStartHost();   Debug.Log("[GNM] OnStartHost"); }
     public override void OnStartServer() { base.OnStartServer(); Debug.Log("[GNM] OnStartServer"); }
     public override void OnStartClient() { base.OnStartClient(); Debug.Log("[GNM] OnStartClient"); }
+
     public override void OnClientConnect()
     {
         base.OnClientConnect();
         Debug.Log("[GNM] OnClientConnect");
-        // If we're a pure client (not the host), we just joined someone's party
+        IsIntentionallyJoining = false; // successfully connected, clear flag
         if (!NetworkServer.active)
             MenuController.Instance?.OnJoinedParty();
     }
@@ -217,8 +209,6 @@ public class GameNetworkManager : NetworkManager
         base.OnStopHost();
         Debug.Log("[GNM] OnStopHost");
         LobbyPlayer.All.Clear();
-        _sessionDestroyed = false;
-        _stoppingAsHost = false;
     }
 
     public override void OnStopClient()
@@ -232,21 +222,26 @@ public class GameNetworkManager : NetworkManager
     {
         base.OnStopServer();
         Debug.Log("[GNM] OnStopServer");
-        // Clear party state so next host session starts fresh
+        // If server stopped with no remaining connections, the party is empty — destroy session
+        DestroySessionIfEmpty();
         if (PartyManager.Instance != null)
         {
             PartyManager.Instance.memberNames.Clear();
-            PartyManager.Instance.leaderName = "";
+            PartyManager.Instance.selectedSceneName = "";
+            PartyManager.Instance.selectedModeDisplay = "";
         }
     }
 
     public override void OnClientDisconnect()
     {
         base.OnClientDisconnect();
-        Debug.Log("[GNM] OnClientDisconnect");
+        Debug.Log($"[GNM] OnClientDisconnect intentionalJoin={IsIntentionallyJoining} hostDisconnecting={IsHostDisconnecting}");
         LobbyPlayer.All.Clear();
-        // Only notify MenuController if we were a pure client (not the host stopping itself)
-        if (!_stoppingAsHost)
+        bool wasIntentional = IsIntentionallyJoining;
+        bool wasHostDisconnect = IsHostDisconnecting;
+        IsIntentionallyJoining = false;
+        IsHostDisconnecting    = false;
+        if (!wasIntentional && !wasHostDisconnect)
             MenuController.Instance?.OnDisconnectedFromParty();
     }
 
@@ -269,7 +264,6 @@ public class GameNetworkManagerEditor : UnityEditor.Editor
 {
     public override void OnInspectorGUI()
     {
-        // Draw ALL fields including inherited NetworkManager fields (spawnable prefabs etc)
         serializedObject.Update();
         UnityEditor.SerializedProperty prop = serializedObject.GetIterator();
         prop.NextVisible(true);
@@ -278,7 +272,6 @@ public class GameNetworkManagerEditor : UnityEditor.Editor
         serializedObject.ApplyModifiedProperties();
 
         var gnm = (GameNetworkManager)target;
-
         UnityEditor.EditorGUI.BeginChangeCheck();
         gnm.menuSceneAsset = (UnityEditor.SceneAsset)UnityEditor.EditorGUILayout.ObjectField(
             "Menu Scene", gnm.menuSceneAsset, typeof(UnityEditor.SceneAsset), false);
@@ -287,7 +280,6 @@ public class GameNetworkManagerEditor : UnityEditor.Editor
             gnm.menuSceneName = gnm.menuSceneAsset.name;
             UnityEditor.EditorUtility.SetDirty(gnm);
         }
-
         UnityEditor.EditorGUILayout.LabelField("Menu Scene Name", gnm.menuSceneName);
     }
 }
