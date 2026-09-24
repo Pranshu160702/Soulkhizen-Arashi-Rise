@@ -6,20 +6,17 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Cowsins/Demo/MainMenu.unity
-    guid: 8f9c85f44b8279c438ee7f287f4c2159
+    path: Assets/DSRVD/Scenes/Menu.unity
+    guid: 0827c01b95550c945801151d48f2fa63
+  - enabled: 1
+    path: Assets/DSRVD/Scenes/Competetive.unity
+    guid: 5279d89f74c3b294ebeddbb66ae42c7e
   - enabled: 1
     path: Assets/Cowsins/Demo/Chill.unity
     guid: 613fba616958bec418ee718b8e414d39
   - enabled: 1
     path: Assets/Cowsins/Demo/Training.unity
     guid: c65d245ca63349e40af89661df799c04
-  - enabled: 1
-    path: Assets/Cowsins/Demo/BlankScene.unity
-    guid: b1752b72730c0554482c0174158e94b4
-  - enabled: 1
-    path: Assets/Cowsins/Demo/Competetive.unity
-    guid: cd25df0b805943b4cb354d589e069f75
   m_configObjects:
     com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f, type: 2}
     com.unity.input.settings: {fileID: 11400000, guid: 33f591010f343104f853b337a1fca25a, type: 2}

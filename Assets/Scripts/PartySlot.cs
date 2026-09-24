@@ -9,8 +9,8 @@ public class PartySlot : MonoBehaviour
     [Tooltip("The PlayerCardSlot transform — card prefab spawns inside this")]
     public Transform cardSlot;
 
-    [Tooltip("The + icon shown when empty — null for slot 0 (local player always present)")]
-    public GameObject plusIcon;
+    [Tooltip("The NoPlayerPanel shown when empty — null for slot 0 (local player always present)")]
+    public GameObject noPlayerPanel;
 
     [HideInInspector] public GameObject playerCardPrefab; // set by MenuController
 
@@ -37,7 +37,7 @@ public class PartySlot : MonoBehaviour
         _activeCard?.Initialize(playerName, isReady, banner, rankIcon, rankLabel);
         _occupiedName = playerName;
 
-        if (plusIcon) plusIcon.SetActive(false);
+        if (noPlayerPanel) noPlayerPanel.SetActive(false);
         return _activeCard;
     }
 
@@ -49,7 +49,7 @@ public class PartySlot : MonoBehaviour
             _activeCard = null;
         }
         _occupiedName = null;
-        if (plusIcon) plusIcon.SetActive(true);
+        if (noPlayerPanel) noPlayerPanel.SetActive(true);
     }
 
     public void SetStatus(bool isReady) => _activeCard?.SetStatus(isReady);

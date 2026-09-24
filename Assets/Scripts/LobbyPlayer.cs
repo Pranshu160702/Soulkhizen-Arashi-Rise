@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class LobbyPlayer : NetworkBehaviour
 {
-    [SyncVar(hook = nameof(OnNameChanged))] public string playerName;
+    [SyncVar(hook = nameof(OnNameChanged))]  public string playerName;
     [SyncVar(hook = nameof(OnRoomCodeChanged))] public string roomCode;
 
     public static System.Collections.Generic.List<LobbyPlayer> All = new();
@@ -11,28 +11,7 @@ public class LobbyPlayer : NetworkBehaviour
     [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]
     static void ResetStatics() => All = new();
 
-    void OnNameChanged(string oldName, string newName)
-    {
-        Debug.Log($"[LobbyPlayer] OnNameChanged '{oldName}' -> '{newName}' isServer={isServer}");
-
-        if (isServer && !string.IsNullOrEmpty(newName))
-        {
-            if (!string.IsNullOrEmpty(oldName))
-                PartyManager.Instance?.RemoveMember(oldName);
-            PartyManager.Instance?.AddMember(newName);
-        }
-
-        MenuController.Instance?.RefreshParty();
-    }
-
-    void OnRoomCodeChanged(string _, string newCode)
-    {
-        if (!string.IsNullOrEmpty(newCode))
-        {
-            GameNetworkManager.CurrentLobbyCode = newCode;
-            MenuController.Instance?.RefreshParty();
-        }
-    }
+    // ── Server callbacks ──────────────────────────────────────────────
 
     public override void OnStartServer()
     {
@@ -40,19 +19,19 @@ public class LobbyPlayer : NetworkBehaviour
         roomCode = GameNetworkManager.CurrentLobbyCode;
     }
 
+    // ── Client callbacks ──────────────────────────────────────────────
+
     public override void OnStartClient()
     {
+        base.OnStartClient();
         if (!All.Contains(this)) All.Add(this);
-        Debug.Log($"[LobbyPlayer] OnStartClient name='{playerName}'");
+
         if (!string.IsNullOrEmpty(roomCode))
             GameNetworkManager.CurrentLobbyCode = roomCode;
-        if (!string.IsNullOrEmpty(playerName))
-            MenuController.Instance?.RefreshParty();
     }
 
     public override void OnStartLocalPlayer()
     {
-        Debug.Log($"[LobbyPlayer] OnStartLocalPlayer — sending name: {GameNetworkManager.LocalPlayerName}");
         CmdSetName(GameNetworkManager.LocalPlayerName);
         MenuController.Instance?.RefreshStartButton();
         MenuController.Instance?.RefreshLeaveButton();
@@ -60,18 +39,30 @@ public class LobbyPlayer : NetworkBehaviour
 
     public override void OnStopClient()
     {
-        Debug.Log($"[LobbyPlayer] OnStopClient name='{playerName}'");
-        All.Remove(this);
-        MenuController.Instance?.RefreshParty();
-    }
-
-    public override void OnStopServer()
-    {
-        if (!string.IsNullOrEmpty(playerName))
-            PartyManager.Instance?.RemoveMember(playerName);
+        bool wasTracked = All.Remove(this);
+        if (wasTracked && !isOwned && !string.IsNullOrEmpty(playerName))
+            MenuController.Instance?.DestroyCardForPlayer(playerName);
     }
 
     void OnDestroy() => All.Remove(this);
+
+    // ── SyncVar hooks ─────────────────────────────────────────────────
+
+    void OnNameChanged(string oldName, string newName)
+    {
+        if (isOwned) return;
+
+        if (!string.IsNullOrEmpty(oldName))
+            MenuController.Instance?.DestroyCardForPlayer(oldName);
+        if (!string.IsNullOrEmpty(newName))
+            MenuController.Instance?.SpawnCardForPlayer(newName);
+    }
+
+    void OnRoomCodeChanged(string _, string newCode)
+    {
+        if (!string.IsNullOrEmpty(newCode))
+            GameNetworkManager.CurrentLobbyCode = newCode;
+    }
 
     [Command]
     void CmdSetName(string name) => playerName = name;

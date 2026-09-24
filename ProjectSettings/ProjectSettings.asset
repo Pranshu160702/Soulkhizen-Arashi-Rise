@@ -13,17 +13,17 @@ PlayerSettings:
   useOnDemandResources: 0
   accelerometerFrequency: 60
   companyName: Pranshu's Games
-  productName: 'SOULKHIZEN : ARASHI RISE'
-  defaultCursor: {fileID: 2800000, guid: 9ec4e1218f4a0ef47abe75f444e38330, type: 3}
+  productName: DSRVD
+  defaultCursor: {fileID: 2800000, guid: c1812a1c719d6f54bb297561a4d9f853, type: 3}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
   m_ShowUnitySplashScreen: 1
   m_ShowUnitySplashLogo: 0
-  m_SplashScreenOverlayOpacity: 0
-  m_SplashScreenAnimation: 1
+  m_SplashScreenOverlayOpacity: 0.8
+  m_SplashScreenAnimation: 2
   m_SplashScreenLogoStyle: 1
   m_SplashScreenDrawMode: 0
-  m_SplashScreenBackgroundAnimationZoom: 1
+  m_SplashScreenBackgroundAnimationZoom: 0
   m_SplashScreenLogoAnimationZoom: 1
   m_SplashScreenBackgroundLandscapeAspect: 1
   m_SplashScreenBackgroundPortraitAspect: 1
@@ -40,9 +40,9 @@ PlayerSettings:
     width: 1
     height: 1
   m_SplashScreenLogos:
-  - logo: {fileID: 0}
-    duration: 5
-  m_VirtualRealitySplashScreen: {fileID: 2800000, guid: 729385b376ddb404989e2650bcf39d6f, type: 3}
+  - logo: {fileID: 5382082448351705128, guid: dac937ce8e1063f45aad24b85744c2d7, type: 3}
+    duration: 3
+  m_VirtualRealitySplashScreen: {fileID: 2800000, guid: a1ca22d6afc28634ba53d4c52ab40637, type: 3}
   defaultScreenWidth: 1920
   defaultScreenHeight: 1080
   defaultScreenWidthWeb: 960
@@ -151,7 +151,7 @@ PlayerSettings:
   loadStoreDebugModeEnabled: 0
   visionOSBundleVersion: 1.0
   tvOSBundleVersion: 1.0
-  bundleVersion: 0.1
+  bundleVersion: 1.1
   preloadedAssets:
   - {fileID: 11400000, guid: 33f591010f343104f853b337a1fca25a, type: 2}
   metroInputSource: 0
@@ -305,7 +305,7 @@ PlayerSettings:
   - m_BuildTarget: Standalone
     m_Icons:
     - serializedVersion: 2
-      m_Icon: {fileID: 2800000, guid: 16c9257754134d3468bc14a9aa8019ce, type: 3}
+      m_Icon: {fileID: 2800000, guid: 42b8558d88062324cbc3693cc996f603, type: 3}
       m_Width: 1024
       m_Height: 1024
       m_Kind: 0
@@ -347,7 +347,7 @@ PlayerSettings:
   - m_BuildTarget: 
     m_Icons:
     - serializedVersion: 2
-      m_Icon: {fileID: 2800000, guid: 16c9257754134d3468bc14a9aa8019ce, type: 3}
+      m_Icon: {fileID: 2800000, guid: 42b8558d88062324cbc3693cc996f603, type: 3}
       m_Width: 128
       m_Height: 128
       m_Kind: 0
@@ -665,9 +665,9 @@ PlayerSettings:
   ps4IncludedModules: []
   ps4attribVROutputEnabled: 0
   monoEnv: 
-  splashScreenBackgroundSourceLandscape: {fileID: 4131339167068261143, guid: 729385b376ddb404989e2650bcf39d6f, type: 3}
-  splashScreenBackgroundSourcePortrait: {fileID: 4131339167068261143, guid: 729385b376ddb404989e2650bcf39d6f, type: 3}
-  blurSplashScreenBackground: 0
+  splashScreenBackgroundSourceLandscape: {fileID: -6934888080801473678, guid: 65a54f0eccd10544e894e3726d9b3045, type: 3}
+  splashScreenBackgroundSourcePortrait: {fileID: -6934888080801473678, guid: 65a54f0eccd10544e894e3726d9b3045, type: 3}
+  blurSplashScreenBackground: 1
   spritePackerPolicy: 
   webGLMemorySize: 16
   webGLExceptionSupport: 1

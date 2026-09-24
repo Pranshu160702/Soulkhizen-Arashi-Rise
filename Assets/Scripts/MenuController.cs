@@ -33,6 +33,8 @@ public class MenuController : MonoBehaviour
 
     [Header("Party - MyPartyPanel")]
     public TextMeshProUGUI queueValueText;
+    public CowsinsButton generateCodeButton;
+    public TextMeshProUGUI slotsRemainingText;
 
     [Header("Party - JoinOtherPartyPanel")]
     public TMP_InputField joinCodeInput;
@@ -54,10 +56,9 @@ public class MenuController : MonoBehaviour
     private string _selectedSceneName;
     private string _selectedModeDisplayName;
     private Coroutine _fadeStatusCoroutine;
-    private Coroutine _reHostCoroutine;
 
-    private static readonly Regex NameRegex      = new Regex(@"^[a-zA-Z0-9]+$");
-    private static readonly Regex PartyCodeRegex = new Regex(@"^[a-zA-Z0-9]{6}$");
+    private static readonly Regex NameRegex      = new Regex(@"^[a-zA-Z0-9]+$",      RegexOptions.None, System.TimeSpan.FromSeconds(1));
+    private static readonly Regex PartyCodeRegex = new Regex(@"^[a-zA-Z0-9]{6}$", RegexOptions.None, System.TimeSpan.FromSeconds(1));
 
     private GameNetworkManager Net => GameNetworkManager.singleton as GameNetworkManager;
 
@@ -96,6 +97,7 @@ public class MenuController : MonoBehaviour
         queueButton?.onClick.AddListener(ShowQueueTab);
         settingsButton?.onClick.AddListener(ShowSettingsTab);
 
+        generateCodeButton?.onClick.AddListener(EnsureHosted);
         joinConfirmButton?.onClick.AddListener(OnConfirmJoin);
         startButton?.onClick.AddListener(OnStartClicked);
         leaveButton?.onClick.AddListener(OnLeaveClicked);
@@ -123,8 +125,8 @@ public class MenuController : MonoBehaviour
     {
         if (!_waitingForEOS) return;
         _eosWaitTimer -= Time.deltaTime;
-        if (IsEOSReady())            { _waitingForEOS = false; DoAutoHost(); }
-        else if (_eosWaitTimer <= 0f){ _waitingForEOS = false; SetPartyCode("EOS Failed"); }
+        if (IsEOSReady())             { _waitingForEOS = false; DoHost(); }
+        else if (_eosWaitTimer <= 0f) { _waitingForEOS = false; SetPartyCode("EOS Failed"); }
     }
 
     // ── Login ────────────────────────────────────────────────────────
@@ -164,10 +166,8 @@ public class MenuController : MonoBehaviour
         friendsPanel?.SetActive(true);
         if (queueValueText) queueValueText.text = _selectedModeDisplayName;
         InitLocalPlayerSlot();
-        RefreshParty();
         RefreshStartButton();
         RefreshLeaveButton();
-        AutoHost();
     }
 
     void InitLocalPlayerSlot()
@@ -176,8 +176,6 @@ public class MenuController : MonoBehaviour
         partySlots[0].DestroyCard();
         partySlots[0].SpawnCard(GameNetworkManager.LocalPlayerName, true);
     }
-
-    public void OnMainMenuShown() => AutoHost();
 
     // ── Tabs ─────────────────────────────────────────────────────────
 
@@ -192,100 +190,112 @@ public class MenuController : MonoBehaviour
     public void ShowSettingsTab() => SetTab(settingsTab);
     public void ShowPartyTab()    => SetTab(partyTab);
 
-    // ── Auto Host ────────────────────────────────────────────────────
+    // ── Host on Demand ────────────────────────────────────────────────
+    // Called when the player wants to share their party code (e.g. clicks "Copy Code" or opens party panel)
 
-    void AutoHost()
+    public void EnsureHosted()
     {
         if (Net == null) return;
-        if (_waitingForEOS) { _eosWaitTimer = 15f; return; }
-
-        if (Mirror.NetworkServer.active || Mirror.NetworkClient.isConnected)
-        {
-            SetPartyCode(GameNetworkManager.CurrentLobbyCode);
-            return;
-        }
-
-        if (!string.IsNullOrEmpty(GameNetworkManager.CurrentLobbyCode))
+        if (Mirror.NetworkServer.active)
         {
             SetPartyCode(GameNetworkManager.CurrentLobbyCode);
             return;
         }
 
         SetPartyCode("Generating...");
+
         if (!IsEOSReady()) { _waitingForEOS = true; _eosWaitTimer = 15f; return; }
-        DoAutoHost();
+        DoHost();
     }
 
-    void DoAutoHost()
+    void DoHost()
     {
         Net.StartPartyHost(code =>
         {
             SetPartyCode(string.IsNullOrEmpty(code) ? "------" : code);
-            if (!string.IsNullOrEmpty(code))
-            {
-                InitLocalPlayerSlot();
-                RefreshStartButton();
-                RefreshLeaveButton();
-            }
+            InitLocalPlayerSlot();
+            RefreshStartButton();
+            RefreshLeaveButton();
         });
     }
 
     void SetPartyCode(string code) { if (_partyCodeText) _partyCodeText.text = code; }
 
-    // ── Party Refresh ────────────────────────────────────────────────
-
-    public void RefreshParty()
+    void ClearGuestSlots()
     {
         if (partySlots == null) return;
+        for (int i = 1; i < partySlots.Length; i++) partySlots[i]?.DestroyCard();
+    }
 
-        var others = new System.Collections.Generic.List<string>();
-        if (PartyManager.Instance != null && PartyManager.Instance.memberNames.Count > 0)
-        {
-            foreach (var n in PartyManager.Instance.memberNames)
-                if (n != GameNetworkManager.LocalPlayerName)
-                    others.Add(n);
-        }
-        else
-        {
-            foreach (var lp in LobbyPlayer.All)
-                if (!string.IsNullOrEmpty(lp.playerName) && lp.playerName != GameNetworkManager.LocalPlayerName)
-                    others.Add(lp.playerName);
-        }
 
+    // ── Card Lifecycle ────────────────────────────────────────────────
+
+    // Finds the first empty guest slot and spawns a card there
+    public void SpawnCardForPlayer(string playerName)
+    {
+        if (partySlots == null) return;
+        // Don't double-spawn
+        for (int i = 1; i < partySlots.Length; i++)
+            if (partySlots[i] != null && partySlots[i].OccupiedName == playerName) return;
+        // Find first empty slot
         for (int i = 1; i < partySlots.Length; i++)
         {
-            if (partySlots[i] == null) continue;
-            int idx = i - 1;
-            if (idx < others.Count)
+            if (partySlots[i] != null && !partySlots[i].IsOccupied)
             {
-                string name = others[idx];
-                if (!partySlots[i].IsOccupied || partySlots[i].OccupiedName != name)
-                    partySlots[i].SpawnCard(name, true);
+                partySlots[i].SpawnCard(playerName, true);
+                return;
             }
-            else
-                partySlots[i].DestroyCard();
         }
+    }
 
-        SetPartyCode(string.IsNullOrEmpty(GameNetworkManager.CurrentLobbyCode)
-            ? "------" : GameNetworkManager.CurrentLobbyCode);
+    // Finds the slot occupied by this player and destroys their card
+    public void DestroyCardForPlayer(string playerName)
+    {
+        if (partySlots == null) return;
+        for (int i = 1; i < partySlots.Length; i++)
+            if (partySlots[i] != null && partySlots[i].OccupiedName == playerName)
+            {
+                partySlots[i].DestroyCard();
+                return;
+            }
+    }
 
-        RefreshStartButton();
-        RefreshLeaveButton();
+    public void RefreshSlotsRemaining(int memberCount)
+    {
+        if (slotsRemainingText == null) return;
+        int remaining = PartyManager.MaxMembers - memberCount;
+        slotsRemainingText.text = $"{remaining} slot{(remaining == 1 ? "" : "s")} remaining";
     }
 
     public void RefreshStartButton()
     {
         if (startButton == null) return;
-        bool isHost = Mirror.NetworkServer.active;
+        bool isHost  = Mirror.NetworkServer.active;
+        bool inParty = isHost || Mirror.NetworkClient.isConnected;
         startButton.interactable = isHost;
         if (queueButton != null) queueButton.interactable = isHost;
+        if (generateCodeButton != null) generateCodeButton.gameObject.SetActive(!inParty);
     }
 
     public void RefreshLeaveButton()
     {
         if (leaveButton == null) return;
-        bool inParty = Mirror.NetworkClient.isConnected;
+        bool inParty = Mirror.NetworkServer.active || Mirror.NetworkClient.isConnected;
         leaveButton.gameObject.SetActive(inParty);
+    }
+
+    // Shared reset called by all disconnect paths (intentional leave, host disconnect, crash, quit)
+    void ResetToNoParty()
+    {
+        ClearGuestSlots();
+        GameNetworkManager.CurrentLobbyCode = string.Empty;
+        SetPartyCode("------");
+        leaveButton?.gameObject.SetActive(false);
+        generateCodeButton?.gameObject.SetActive(true);
+        if (startButton != null) startButton.interactable = false;
+        if (queueButton != null) queueButton.interactable = false;
+        if (slotsRemainingText != null) slotsRemainingText.text = "";
+        LoadingOverlay.Hide();
     }
 
     // ── Join Party ───────────────────────────────────────────────────
@@ -300,38 +310,22 @@ public class MenuController : MonoBehaviour
         if (joinConfirmButton) joinConfirmButton.interactable = false;
 
         if (!IsEOSReady()) { StartCoroutine(WaitThenJoin(code)); return; }
-        DoJoin(code);
-    }
-
-    void DoJoin(string code)
-    {
-        for (int i = 1; i < partySlots.Length; i++) partySlots[i]?.DestroyCard();
-        LoadingOverlay.Show();
-
-        if (Mirror.NetworkServer.active || Mirror.NetworkClient.isConnected)
-        {
-            GameNetworkManager.IsIntentionallyJoining = true;
-            GameNetworkManager.CurrentLobbyCode = string.Empty;
-            Net?.LeaveParty();
-            StartCoroutine(WaitForDisconnectThenJoin(code));
-            return;
-        }
-
         ExecuteJoin(code);
     }
 
     void ExecuteJoin(string code)
     {
-        GameNetworkManager.IsIntentionallyJoining = true;
+        LoadingOverlay.Show();
         Net.JoinParty(code, () =>
         {
+            // Not found — restore UI, stay in current state (no re-host)
             LoadingOverlay.Hide();
-            GameNetworkManager.IsIntentionallyJoining = false;
             SetJoinStatus("Party Not Found");
             if (joinCodeInput) joinCodeInput.interactable = true;
             RefreshJoinButton();
-            InitLocalPlayerSlot();
-            AutoHost();
+            // Restore party code display (we never left our own party)
+            SetPartyCode(string.IsNullOrEmpty(GameNetworkManager.CurrentLobbyCode)
+                ? "------" : GameNetworkManager.CurrentLobbyCode);
         });
     }
 
@@ -339,12 +333,13 @@ public class MenuController : MonoBehaviour
     public void OnJoinedParty()
     {
         LoadingOverlay.Hide();
-        Debug.Log("[MenuController] OnJoinedParty");
         if (joinCodeInput) { joinCodeInput.text = ""; joinCodeInput.interactable = true; }
         RefreshJoinButton();
         SetJoinStatus("Party Joined Successfully", success: true);
         if (_fadeStatusCoroutine != null) StopCoroutine(_fadeStatusCoroutine);
         _fadeStatusCoroutine = StartCoroutine(FadeJoinStatus());
+        SetPartyCode(string.IsNullOrEmpty(GameNetworkManager.CurrentLobbyCode)
+            ? "------" : GameNetworkManager.CurrentLobbyCode);
         RefreshStartButton();
         RefreshLeaveButton();
     }
@@ -354,15 +349,6 @@ public class MenuController : MonoBehaviour
         yield return new WaitForSeconds(5f);
         SetJoinStatus("");
         _fadeStatusCoroutine = null;
-    }
-
-    IEnumerator WaitForDisconnectThenJoin(string code)
-    {
-        float t = 8f;
-        while ((Mirror.NetworkServer.active || Mirror.NetworkClient.active) && t > 0f)
-        { t -= Time.deltaTime; yield return null; }
-        yield return null;
-        ExecuteJoin(code);
     }
 
     IEnumerator WaitThenJoin(string code)
@@ -376,7 +362,7 @@ public class MenuController : MonoBehaviour
             RefreshJoinButton();
             yield break;
         }
-        DoJoin(code);
+        ExecuteJoin(code);
     }
 
     // ── Start Game ───────────────────────────────────────────────────
@@ -392,52 +378,37 @@ public class MenuController : MonoBehaviour
 
     void OnLeaveClicked()
     {
-        foreach (var slot in partySlots) slot?.DestroyCard();
+        ClearGuestSlots();
+        leaveButton.gameObject.SetActive(false);
         LoadingOverlay.Show();
         Net?.LeaveParty();
-        if (_reHostCoroutine != null) StopCoroutine(_reHostCoroutine);
-        _reHostCoroutine = StartCoroutine(ReHostAfterLeave());
+        StartCoroutine(WaitForLeave());
     }
 
-    IEnumerator ReHostAfterLeave()
+    IEnumerator WaitForLeave()
     {
-        float t = 8f;
+        float t = 6f;
         while ((Mirror.NetworkServer.active || Mirror.NetworkClient.active) && t > 0f)
         { t -= Time.deltaTime; yield return null; }
-        yield return new WaitForSeconds(3f);
-        _reHostCoroutine = null;
-        LoadingOverlay.Hide();
+        ResetToNoParty();
         InitLocalPlayerSlot();
-        AutoHost();
     }
 
-    // Called by GNM when client unexpectedly disconnects (host left, kicked, etc.)
-    public void OnDisconnectedFromParty()
+    // Called by GNM on any unintentional disconnect (crash, network drop, host vanished, game quit)
+    public void OnLostConnection()
     {
-        Debug.Log("[MenuController] Disconnected from party — re-hosting");
-        for (int i = 1; i < partySlots.Length; i++) partySlots[i]?.DestroyCard();
-        GameNetworkManager.CurrentLobbyCode = string.Empty;
-        RefreshStartButton();
-        RefreshLeaveButton();
-        LoadingOverlay.Show();
-        if (_reHostCoroutine != null) StopCoroutine(_reHostCoroutine);
-        _reHostCoroutine = StartCoroutine(ReHostAfterLeave());
+        ResetToNoParty();
+        InitLocalPlayerSlot();
     }
 
     // Called by GNM RPC when the host intentionally leaves with members still in party
     public void OnHostDisconnected()
     {
-        Debug.Log("[MenuController] Host disconnected — party disbanded");
-        for (int i = 1; i < partySlots.Length; i++) partySlots[i]?.DestroyCard();
-        GameNetworkManager.CurrentLobbyCode = string.Empty;
-        RefreshStartButton();
-        RefreshLeaveButton();
+        ResetToNoParty();
+        InitLocalPlayerSlot();
         SetJoinStatus("Host has disconnected");
         if (_fadeStatusCoroutine != null) StopCoroutine(_fadeStatusCoroutine);
         _fadeStatusCoroutine = StartCoroutine(FadeJoinStatus());
-        LoadingOverlay.Show();
-        if (_reHostCoroutine != null) StopCoroutine(_reHostCoroutine);
-        _reHostCoroutine = StartCoroutine(ReHostAfterLeave());
     }
 
     // ── Scene Selection ──────────────────────────────────────────────
@@ -448,12 +419,11 @@ public class MenuController : MonoBehaviour
         _selectedSceneName       = sceneName;
         _selectedModeDisplayName = displayName;
         if (queueValueText) queueValueText.text = displayName;
-        if (PartyManager.Instance != null && Mirror.NetworkServer.active)
+        if (PartyManager.Instance != null)
             PartyManager.Instance.SetGameMode(sceneName, displayName);
         ShowPartyTab();
     }
 
-    // Called by PartyManager when host changes game mode — updates guests
     public void OnGameModeChanged(string sceneName, string displayName)
     {
         _selectedSceneName       = sceneName;

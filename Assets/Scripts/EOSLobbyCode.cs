@@ -85,7 +85,7 @@ namespace EpicTransport
             var bucketOptions = new SessionModificationSetBucketIdOptions() { BucketId = "INDG" };
             modification.SetBucketId(ref bucketOptions);
 
-            var joinOptions = new SessionModificationSetJoinInProgressAllowedOptions() { AllowJoinInProgress = false };
+            var joinOptions = new SessionModificationSetJoinInProgressAllowedOptions() { AllowJoinInProgress = true };
             modification.SetJoinInProgressAllowed(ref joinOptions);
 
             var permOptions = new SessionModificationSetPermissionLevelOptions() { PermissionLevel = OnlineSessionPermissionLevel.PublicAdvertised };
@@ -296,20 +296,17 @@ namespace EpicTransport
         public void DestroySession()
         {
             Debug.Log("[EOSLobbyCode] DestroySession called");
-            // Mark this owner as recently destroyed so FindAllSessions filters it out
             var myId = EOSSDKComponent.LocalUserProductId?.ToString();
             if (!string.IsNullOrEmpty(myId))
             {
                 _recentlyDestroyedOwners.Add(myId);
-                // Remove after 60 seconds to allow re-hosting
                 StartCoroutine(RemoveDestroyedOwner(myId, 10f));
             }
 
             var options = new DestroySessionOptions() { SessionName = SESSION_NAME };
             Sessions?.DestroySession(ref options, null, (ref DestroySessionCallbackInfo info) =>
-            {
-                Debug.Log($"[EOSLobbyCode] DestroySession result: {info.ResultCode}");
-            });
+                Debug.Log($"[EOSLobbyCode] DestroySession result: {info.ResultCode}")
+            );
         }
 
         System.Collections.IEnumerator RemoveDestroyedOwner(string ownerId, float delay)
