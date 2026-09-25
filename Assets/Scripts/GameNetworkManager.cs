@@ -52,8 +52,6 @@ public class GameNetworkManager : NetworkManager
 
     // ── Host ─────────────────────────────────────────────────────────
 
-    // Creates an EOS session and starts a Mirror host. Only called when the
-    // player explicitly wants to be joinable (i.e. they share their code).
     public void StartPartyHost(System.Action<string> onCodeReady)
     {
         if (EOSLobbyCode.Instance == null) { onCodeReady?.Invoke(null); return; }
@@ -83,8 +81,6 @@ public class GameNetworkManager : NetworkManager
 
     // ── Join ──────────────────────────────────────────────────────────
 
-    // Searches EOS for the code. If found, stops any existing host/client
-    // then connects. onNotFound fires if the code doesn't exist in EOS.
     public void JoinParty(string lobbyCode, System.Action onNotFound)
     {
         if (EOSLobbyCode.Instance == null) { onNotFound?.Invoke(); return; }
@@ -92,7 +88,6 @@ public class GameNetworkManager : NetworkManager
         EOSLobbyCode.Instance.FindSession(lobbyCode,
             hostId =>
             {
-                // Found — now leave our own party if we have one, then connect
                 StartCoroutine(LeaveAndConnect(hostId, lobbyCode));
             },
             () =>
@@ -104,25 +99,38 @@ public class GameNetworkManager : NetworkManager
 
     IEnumerator LeaveAndConnect(string hostId, string lobbyCode)
     {
+        Debug.Log($"[GNM] LeaveAndConnect START server={NetworkServer.active} client={NetworkClient.active} leavingToJoin={IsLeavingToJoin} leavingParty={IsLeavingParty}");
+
         if (NetworkServer.active || NetworkClient.active)
         {
             IsLeavingToJoin = true;
             StopCurrentSession();
 
-            float t = 8f; // enough for the 0.3s RPC delay + shutdown
+            float t = 8f;
             while ((NetworkServer.active || NetworkClient.active) && t > 0f)
             { t -= Time.deltaTime; yield return null; }
 
+            Debug.Log($"[GNM] LeaveAndConnect after stop: server={NetworkServer.active} client={NetworkClient.active} timedOut={t <= 0f}");
             IsLeavingToJoin = false;
         }
 
-        yield return null;
+        // Ensure flags are clear before connecting
+        IsLeavingParty  = false;
+        IsLeavingToJoin = false;
+        // Destroy any stale client-side spawned objects from the previous session.
+        // If NetworkClient.spawned still has entries (e.g. host LP netId=1), Mirror will
+        // skip OnStartClient for them on rejoin, so the card never spawns.
+        NetworkClient.DestroyAllClientObjects();
+        LobbyPlayer.All.Clear();
+        Debug.Log($"[GNM] LeaveAndConnect flags cleared, waiting 1s before StartClient");
+
         yield return new WaitForSeconds(1f);
 
         CurrentLobbyCode = lobbyCode;
         onlineScene  = menuSceneName;
         offlineScene = menuSceneName;
         networkAddress = hostId;
+        Debug.Log($"[GNM] LeaveAndConnect calling StartClient leavingToJoin={IsLeavingToJoin} leavingParty={IsLeavingParty}");
         StartClient();
     }
 
@@ -130,7 +138,6 @@ public class GameNetworkManager : NetworkManager
     {
         if (NetworkServer.active && NetworkClient.isConnected)
         {
-            // Notify guests before pulling the rug
             if (NetworkServer.connections.Count > 1)
                 PartyManager.Instance?.NotifyHostDisconnected();
             StartCoroutine(ShutdownCurrentThenContinue());
@@ -147,7 +154,6 @@ public class GameNetworkManager : NetworkManager
         }
     }
 
-    // Used by LeaveAndConnect — gives the RPC a frame to reach clients before stopping
     IEnumerator ShutdownCurrentThenContinue()
     {
         yield return new WaitForSeconds(0.3f);
@@ -172,7 +178,6 @@ public class GameNetworkManager : NetworkManager
 
         if (NetworkServer.active && NetworkClient.isConnected)
         {
-            // We are the host — notify guests then shut down
             if (NetworkServer.connections.Count > 1)
                 PartyManager.Instance?.NotifyHostDisconnected();
             StartCoroutine(ShutdownAfterRpc());
@@ -218,20 +223,89 @@ public class GameNetworkManager : NetworkManager
         }
 
         Debug.Log($"[GNM] OnServerAddPlayer conn={conn.connectionId} isLobby={isLobby}");
+
+        // Log all currently spawned LPs the server knows about
+        foreach (var kv in NetworkServer.spawned)
+        {
+            var lp = kv.Value?.GetComponent<LobbyPlayer>();
+            if (lp == null) continue;
+            Debug.Log($"[GNM]   SpawnedLP netId={kv.Key} connId={kv.Value.connectionToClient?.connectionId} name='{lp.playerName}' observers={kv.Value.observers?.Count}");
+        }
+
         if (EOSLobbyCode.Instance != null && NetworkServer.active)
             EOSLobbyCode.Instance.UpdateSessionPlayerCount(NetworkServer.connections.Count);
         if (PartyManager.Instance != null && NetworkServer.active)
             PartyManager.Instance.SetMemberCount(NetworkServer.connections.Count);
+
+        if (isLobby)
+            StartCoroutine(ResyncLobbyPlayersToConn(conn));
+    }
+
+    IEnumerator ResyncLobbyPlayersToConn(NetworkConnectionToClient conn)
+    {
+        Debug.Log($"[GNM] ResyncLobbyPlayersToConn ENTER conn={conn.connectionId}");
+        yield return null; // wait one frame
+
+        if (!NetworkServer.connections.ContainsKey(conn.connectionId))
+        {
+            Debug.Log($"[GNM] ResyncLobbyPlayersToConn conn={conn.connectionId} GONE before resync — aborting");
+            yield break;
+        }
+
+        Debug.Log($"[GNM] ResyncLobbyPlayersToConn RESUME conn={conn.connectionId} — scanning spawned objects");
+        int processed = 0;
+        foreach (var kv in NetworkServer.spawned)
+        {
+            var lp = kv.Value?.GetComponent<LobbyPlayer>();
+            if (lp == null) continue;
+
+            bool isOwnedByNewConn = kv.Value.connectionToClient == conn;
+            Debug.Log($"[GNM]   Checking netId={kv.Key} name='{lp.playerName}' ownedByNewConn={isOwnedByNewConn} observers={kv.Value.observers?.Count}");
+
+            if (isOwnedByNewConn) continue;
+            if (string.IsNullOrEmpty(lp.playerName))
+            {
+                Debug.Log($"[GNM]   Skipping netId={kv.Key} — playerName is empty");
+                continue;
+            }
+
+            bool alreadyObserver = kv.Value.observers != null && kv.Value.observers.ContainsKey(conn.connectionId);
+            Debug.Log($"[GNM]   RebuildObservers for netId={kv.Key} name='{lp.playerName}' alreadyObserver={alreadyObserver}");
+            NetworkServer.RebuildObservers(kv.Value, true);
+            Debug.Log($"[GNM]   observers after rebuild={kv.Value.observers?.Count}");
+
+            string name = lp.playerName;
+            Debug.Log($"[GNM]   Toggling playerName '' then '{name}' on netId={kv.Key}");
+            lp.playerName = "";
+            lp.playerName = name;
+            Debug.Log($"[GNM]   Toggle done, playerName='{lp.playerName}'");
+            processed++;
+        }
+        Debug.Log($"[GNM] ResyncLobbyPlayersToConn DONE conn={conn.connectionId} processed={processed}");
     }
 
     public override void OnServerDisconnect(NetworkConnectionToClient conn)
     {
-        // Reset playerName to "" so SyncVar fires fresh on rejoin
-        // Guard against destroyed identity (e.g. during StopHost)
-        if (conn.identity != null && conn.identity.gameObject != null)
+        Debug.Log($"[GNM] OnServerDisconnect conn={conn.connectionId} identity={conn.identity?.name} identityNull={conn.identity == null}");
+
+        // Reset playerName to "" so SyncVar hook fires fresh on rejoin
+        // Skip conn 0 (host's own connection) — host LP persists and never re-calls CmdSetName
+        if (conn.connectionId != 0 && conn.identity != null && conn.identity.gameObject != null)
         {
             var lp = conn.identity.GetComponent<LobbyPlayer>();
-            if (lp != null) lp.playerName = "";
+            if (lp != null)
+            {
+                Debug.Log($"[GNM]   Resetting playerName from '{lp.playerName}' to '' for conn={conn.connectionId}");
+                lp.playerName = "";
+            }
+            else
+            {
+                Debug.Log($"[GNM]   No LobbyPlayer on identity for conn={conn.connectionId}");
+            }
+        }
+        else
+        {
+            Debug.Log($"[GNM]   Skipping playerName reset for conn={conn.connectionId} (host conn or null identity)");
         }
 
         base.OnServerDisconnect(conn);
@@ -239,27 +313,34 @@ public class GameNetworkManager : NetworkManager
 
         int remaining = Mathf.Max(0, NetworkServer.connections.Count);
         Debug.Log($"[GNM] OnServerDisconnect conn={conn.connectionId} remaining={remaining}");
+
+        // Log remaining spawned LPs
+        foreach (var kv in NetworkServer.spawned)
+        {
+            var lp = kv.Value?.GetComponent<LobbyPlayer>();
+            if (lp == null) continue;
+            Debug.Log($"[GNM]   RemainingLP netId={kv.Key} connId={kv.Value.connectionToClient?.connectionId} name='{lp.playerName}'");
+        }
+
         if (EOSLobbyCode.Instance != null)
             EOSLobbyCode.Instance.UpdateSessionPlayerCount(remaining);
         if (PartyManager.Instance != null)
             PartyManager.Instance.SetMemberCount(remaining);
     }
 
-    public override void OnStartHost()   { base.OnStartHost();   Debug.Log("[GNM] OnStartHost"); }
+    public override void OnStartHost()   { base.OnStartHost(); IsLeavingParty = false; IsLeavingToJoin = false; Debug.Log("[GNM] OnStartHost"); }
     public override void OnStartServer() { base.OnStartServer(); Debug.Log("[GNM] OnStartServer"); }
     public override void OnStartClient()
     {
-        // Re-register scene NetworkIdentity objects so Mirror can find them
-        // on first join and on every rejoin (StopClient clears the registry)
         NetworkClient.PrepareToSpawnSceneObjects();
         base.OnStartClient();
-        Debug.Log("[GNM] OnStartClient");
+        Debug.Log($"[GNM] OnStartClient leavingToJoin={IsLeavingToJoin} leavingParty={IsLeavingParty}");
     }
 
     public override void OnClientConnect()
     {
         base.OnClientConnect();
-        Debug.Log("[GNM] OnClientConnect");
+        Debug.Log($"[GNM] OnClientConnect isServer={NetworkServer.active} leavingToJoin={IsLeavingToJoin} leavingParty={IsLeavingParty}");
         if (!NetworkServer.active)
             MenuController.Instance?.OnJoinedParty();
     }
@@ -274,8 +355,7 @@ public class GameNetworkManager : NetworkManager
     public override void OnStopClient()
     {
         base.OnStopClient();
-        Debug.Log("[GNM] OnStopClient");
-        // Destroy cards for all tracked remote players before clearing the list
+        Debug.Log($"[GNM] OnStopClient leavingToJoin={IsLeavingToJoin} leavingParty={IsLeavingParty} LobbyPlayer.All.Count={LobbyPlayer.All.Count}");
         foreach (var lp in LobbyPlayer.All)
             if (!lp.isOwned && !string.IsNullOrEmpty(lp.playerName))
                 MenuController.Instance?.DestroyCardForPlayer(lp.playerName);

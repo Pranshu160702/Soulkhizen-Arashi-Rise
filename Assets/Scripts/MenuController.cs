@@ -233,19 +233,25 @@ public class MenuController : MonoBehaviour
     // Finds the first empty guest slot and spawns a card there
     public void SpawnCardForPlayer(string playerName)
     {
-        if (partySlots == null) return;
+        if (partySlots == null) { Debug.Log($"[MC] SpawnCardForPlayer('{playerName}') — partySlots is null!"); return; }
         // Don't double-spawn
         for (int i = 1; i < partySlots.Length; i++)
-            if (partySlots[i] != null && partySlots[i].OccupiedName == playerName) return;
+            if (partySlots[i] != null && partySlots[i].OccupiedName == playerName)
+            {
+                Debug.Log($"[MC] SpawnCardForPlayer('{playerName}') — already in slot {i}, skipping");
+                return;
+            }
         // Find first empty slot
         for (int i = 1; i < partySlots.Length; i++)
         {
             if (partySlots[i] != null && !partySlots[i].IsOccupied)
             {
+                Debug.Log($"[MC] SpawnCardForPlayer('{playerName}') — spawning in slot {i}");
                 partySlots[i].SpawnCard(playerName, true);
                 return;
             }
         }
+        Debug.Log($"[MC] SpawnCardForPlayer('{playerName}') — NO empty slot found!");
     }
 
     // Finds the slot occupied by this player and destroys their card
@@ -255,9 +261,11 @@ public class MenuController : MonoBehaviour
         for (int i = 1; i < partySlots.Length; i++)
             if (partySlots[i] != null && partySlots[i].OccupiedName == playerName)
             {
+                Debug.Log($"[MC] DestroyCardForPlayer('{playerName}') — destroying slot {i}");
                 partySlots[i].DestroyCard();
                 return;
             }
+        Debug.Log($"[MC] DestroyCardForPlayer('{playerName}') — not found in any slot");
     }
 
     public void RefreshSlotsRemaining(int memberCount)
@@ -287,6 +295,7 @@ public class MenuController : MonoBehaviour
     // Shared reset called by all disconnect paths (intentional leave, host disconnect, crash, quit)
     void ResetToNoParty()
     {
+        Debug.Log("[MC] ResetToNoParty");
         ClearGuestSlots();
         GameNetworkManager.CurrentLobbyCode = string.Empty;
         SetPartyCode("------");
@@ -332,6 +341,7 @@ public class MenuController : MonoBehaviour
     // Called by GNM.OnClientConnect when we successfully join someone's party
     public void OnJoinedParty()
     {
+        Debug.Log("[MC] OnJoinedParty");
         LoadingOverlay.Hide();
         if (joinCodeInput) { joinCodeInput.text = ""; joinCodeInput.interactable = true; }
         RefreshJoinButton();
@@ -397,6 +407,7 @@ public class MenuController : MonoBehaviour
     // Called by GNM on any unintentional disconnect (crash, network drop, host vanished, game quit)
     public void OnLostConnection()
     {
+        Debug.Log("[MC] OnLostConnection");
         ResetToNoParty();
         InitLocalPlayerSlot();
     }
