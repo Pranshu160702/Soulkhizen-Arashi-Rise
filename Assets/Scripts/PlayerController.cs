@@ -153,9 +153,16 @@ public class PlayerController : MonoBehaviour
     {
         if (animator == null)
         {
-            var commando = transform.Find("Commando");
-            if (commando != null)
-                animator = commando.GetComponentInChildren<Animator>(true);
+            // Try TPSPlayer first (combined prefab), fall back to Commando (old prefab)
+            var tps = transform.Find("TPSPlayer");
+            if (tps != null)
+                animator = tps.GetComponentInChildren<Animator>(true);
+            if (animator == null)
+            {
+                var commando = transform.Find("Commando");
+                if (commando != null)
+                    animator = commando.GetComponentInChildren<Animator>(true);
+            }
         }
         if (animator == null)
             Debug.LogError("[PlayerController] No Animator found on Commando child!");

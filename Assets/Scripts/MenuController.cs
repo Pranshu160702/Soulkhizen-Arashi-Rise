@@ -342,6 +342,7 @@ public class MenuController : MonoBehaviour
     public void OnJoinedParty()
     {
         Debug.Log("[MC] OnJoinedParty");
+        ClearGuestSlots();
         LoadingOverlay.Hide();
         if (joinCodeInput) { joinCodeInput.text = ""; joinCodeInput.interactable = true; }
         RefreshJoinButton();
@@ -400,8 +401,12 @@ public class MenuController : MonoBehaviour
         float t = 6f;
         while ((Mirror.NetworkServer.active || Mirror.NetworkClient.active) && t > 0f)
         { t -= Time.deltaTime; yield return null; }
-        ResetToNoParty();
-        InitLocalPlayerSlot();
+        // Only reset if we actually left (not transitioning to a new party via LeaveAndConnect)
+        if (!GameNetworkManager.IsLeavingToJoin)
+        {
+            ResetToNoParty();
+            InitLocalPlayerSlot();
+        }
     }
 
     // Called by GNM on any unintentional disconnect (crash, network drop, host vanished, game quit)
